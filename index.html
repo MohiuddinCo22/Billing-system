@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SURGICK Billing</title>
+<style>
+  :root{
+    --ink:#14201f; --muted:#5d6b69; --line:#d9dfdd; --bg:#eef1f0;
+    --card:#ffffff; --accent:#0f5c57; --accent-ink:#ffffff; --danger:#a63232;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+  .app{max-width:960px;margin:0 auto;padding:16px;display:grid;gap:16px;grid-template-columns:1fr}
+  @media(min-width:800px){.app{grid-template-columns:1.1fr .9fr;align-items:start}}
+  h1{font-size:1.25rem;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 12px;font-size:.9rem}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+  label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 4px}
+  input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff;color:var(--ink)}
+  input:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .add-row{display:grid;grid-template-columns:1fr 70px 100px;gap:8px}
+  button{font:inherit;border:0;border-radius:8px;padding:10px 14px;cursor:pointer}
+  .primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
+  .ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+  .link{background:none;color:var(--danger);padding:4px 8px}
+  .actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+  .actions .primary{flex:1}
+  .item{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+  .item small{color:var(--muted)}
+  .empty{color:var(--muted);padding:10px 0}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .sum{display:flex;justify-content:space-between;margin-top:8px;font-weight:600}
+
+  /* Receipt (48mm printable width on a 58mm roll) */
+  .preview{display:flex;justify-content:center;background:#dfe5e3;padding:16px;border-radius:10px}
+  .receipt{
+    width:48mm;background:#fff;color:#000;padding:4mm 0 6mm;
+    font-family:"Courier New",Courier,monospace;font-size:11px;line-height:1.35;
+    box-shadow:0 1px 6px rgba(0,0,0,.18);
+  }
+  .receipt .c{text-align:center}
+  .receipt .brand{font-size:20px;font-weight:700;letter-spacing:2px}
+  .receipt .row{display:flex;justify-content:space-between;gap:6px}
+  .receipt .dash{border-top:1px dashed #000;margin:5px 0}
+  .receipt .name{font-weight:700;word-break:break-word}
+  .receipt .big{font-size:14px;font-weight:700}
+
+  @page{size:58mm auto;margin:0}
+  @media print{
+    html,body{width:58mm;background:#fff;margin:0}
+    .app > .panel, .noprint{display:none !important}
+    .app{display:block;padding:0;max-width:none}
+    .preview{display:block;padding:0;background:none;border-radius:0}
+    .receipt{box-shadow:none;margin:0 auto}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <section class="panel">
+    <h1>New bill</h1>
+    <p class="sub">Add items, then print. Bill no: <strong id="billNoLabel"></strong></p>
+
+    <label for="cust">Customer name (optional)</label>
+    <input id="cust" placeholder="e.g. Rahim">
+
+    <label for="iname">Add item</label>
+    <div class="add-row">
+      <input id="iname" placeholder="Item name" autocomplete="off">
+      <input id="iqty" type="number" min="1" value="1" inputmode="numeric" aria-label="Quantity">
+      <input id="iprice" type="number" min="0" step="any" placeholder="Price" inputmode="decimal" aria-label="Unit price">
+    </div>
+    <div class="actions"><button class="primary" id="addBtn" type="button">Add item</button></div>
+
+    <div id="list" style="margin-top:12px"></div>
+
+    <div class="two">
+      <div>
+        <label for="disc">Discount (Tk)</label>
+        <input id="disc" type="number" min="0" step="any" value="0" inputmode="decimal">
+      </div>
+      <div>
+        <label for="paid">Paid (Tk)</label>
+        <input id="paid" type="number" min="0" step="any" placeholder="0" inputmode="decimal">
+      </div>
+    </div>
+    <div class="sum"><span>Total</span><span id="totalLabel">Tk 0</span></div>
+
+    <div class="actions">
+      <button class="primary" id="printBtn" type="button">Print bill</button>
+      <button class="ghost" id="newBtn" type="button">New bill</button>
+    </div>
+  </section>
+
+  <section class="preview">
+    <div class="receipt" id="receipt" aria-label="Bill preview"></div>
+  </section>
+
+</div>
+
+<script>
+(function(){
+  var SHOP = {
+    name: "SURGICK",
+    tag: "Gadget Items",
+    address: "Kazir Dewri, Chattogram",
+    phone: "01615546040",
+    thanks: "Thank you for shopping with us!"
+  };
+
+  var $ = function(id){ return document.getElementById(id); };
+  var items = [];
+  var stamp = new Date();
+
+  function money(n){ return Number(n||0).toLocaleString("en-US",{maximumFractionDigits:2}); }
+  function num(v){ var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+
+  // Bill counter (kept in the browser when available)
+  var memCounter = 0;
+  function getCounter(){
+    try{ return parseInt(localStorage.getItem("surgick_bill_no"),10) || 0; }catch(e){ return memCounter; }
+  }
+  function setCounter(n){
+    memCounter = n;
+    try{ localStorage.setItem("surgick_bill_no", String(n)); }catch(e){}
+  }
+  function billNo(){ return String(getCounter()+1).padStart(4,"0"); }
+
+  function fmtDate(d){
+    var p = function(x){ return String(x).padStart(2,"0"); };
+    return p(d.getDate())+"/"+p(d.getMonth()+1)+"/"+d.getFullYear();
+  }
+  function fmtTime(d){
+    var h = d.getHours(), m = String(d.getMinutes()).padStart(2,"0");
+    var ap = h>=12 ? "PM" : "AM"; h = h%12 || 12;
+    return h+":"+m+" "+ap;
+  }
+
+  function calc(){
+    var sub = items.reduce(function(s,i){ return s + i.qty*i.price; },0);
+    var disc = Math.min(num($("disc").value), sub);
+    var total = sub - disc;
+    var paidRaw = $("paid").value;
+    var paid = paidRaw === "" ? null : num(paidRaw);
+    return {sub:sub, disc:disc, total:total, paid:paid};
+  }
+
+  function el(tag, cls, text){
+    var e = document.createElement(tag);
+    if(cls) e.className = cls;
+    if(text !== undefined) e.textContent = text;
+    return e;
+  }
+  function row(l, r, cls){
+    var d = el("div","row"+(cls?" "+cls:""));
+    d.appendChild(el("span",null,l));
+    d.appendChild(el("span",null,r));
+    return d;
+  }
+
+  function renderList(){
+    var box = $("list");
+    box.textContent = "";
+    if(!items.length){
+      box.appendChild(el("div","empty","No items yet."));
+      return;
+    }
+    items.forEach(function(it, idx){
+      var d = el("div","item");
+      var left = el("div");
+      left.appendChild(el("div",null,it.name));
+      left.appendChild(el("small",null,it.qty+" x Tk "+money(it.price)));
+      d.appendChild(left);
+      d.appendChild(el("strong",null,"Tk "+money(it.qty*it.price)));
+      var rm = el("button","link","Remove");
+      rm.type = "button";
+      rm.setAttribute("aria-label","Remove "+it.name);
+      rm.addEventListener("click", function(){ items.splice(idx,1); render(); });
+      d.appendChild(rm);
+      box.appendChild(d);
+    });
+  }
+
+  function renderReceipt(){
+    var r = $("receipt");
+    r.textContent = "";
+    var t = calc();
+
+    r.appendChild(el("div","c brand",SHOP.name));
+    r.appendChild(el("div","c",SHOP.tag));
+    r.appendChild(el("div","c",SHOP.address));
+    r.appendChild(el("div","c","Phone: "+SHOP.phone));
+    r.appendChild(el("div","dash"));
+
+    r.appendChild(row("Bill #"+billNo(), fmtDate(stamp)));
+    r.appendChild(row("", fmtTime(stamp)));
+    var cust = $("cust").value.trim();
+    if(cust) r.appendChild(el("div",null,"Customer: "+cust));
+    r.appendChild(el("div","dash"));
+
+    if(!items.length){
+      r.appendChild(el("div","c","(no items)"));
+    }
+    items.forEach(function(it){
+      r.appendChild(el("div","name",it.name));
+      r.appendChild(row(it.qty+" x "+money(it.price), money(it.qty*it.price)));
+    });
+    r.appendChild(el("div","dash"));
+
+    r.appendChild(row("Subtotal", money(t.sub)));
+    if(t.disc>0) r.appendChild(row("Discount", "-"+money(t.disc)));
+    r.appendChild(row("TOTAL (Tk)", money(t.total), "big"));
+    if(t.paid !== null){
+      r.appendChild(row("Paid", money(t.paid)));
+      var diff = t.paid - t.total;
+      if(diff >= 0) r.appendChild(row("Change", money(diff)));
+      else r.appendChild(row("Due", money(-diff)));
+    }
+    r.appendChild(el("div","dash"));
+    r.appendChild(el("div","c",SHOP.thanks));
+  }
+
+  function render(){
+    $("billNoLabel").textContent = "#"+billNo();
+    $("totalLabel").textContent = "Tk "+money(calc().total);
+    renderList();
+    renderReceipt();
+  }
+
+  function addItem(){
+    var name = $("iname").value.trim();
+    var qty = Math.max(1, Math.floor(num($("iqty").value)) || 1);
+    var price = num($("iprice").value);
+    if(!name){ $("iname").focus(); return; }
+    if(price <= 0){ $("iprice").focus(); return; }
+    items.push({name:name, qty:qty, price:price});
+    $("iname").value = ""; $("iqty").value = "1"; $("iprice").value = "";
+    $("iname").focus();
+    render();
+  }
+
+  function newBill(){
+    setCounter(getCounter()+1);
+    items = [];
+    $("cust").value = ""; $("disc").value = "0"; $("paid").value = "";
+    stamp = new Date();
+    render();
+    $("iname").focus();
+  }
+
+  $("addBtn").addEventListener("click", addItem);
+  ["iname","iqty","iprice"].forEach(function(id){
+    $(id).addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); addItem(); } });
+  });
+  ["cust","disc","paid"].forEach(function(id){ $(id).addEventListener("input", render); });
+
+  $("printBtn").addEventListener("click", function(){
+    if(!items.length){ $("iname").focus(); return; }
+    stamp = new Date();
+    render();
+    window.print();
+  });
+  $("newBtn").addEventListener("click", newBill);
+
+  render();
+})();
+</script>
+</body>
+                                                                                     </html>

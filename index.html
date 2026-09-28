@@ -40,19 +40,25 @@
     box-shadow:0 1px 6px rgba(0,0,0,.18);
   }
   .receipt .c{text-align:center}
-  .receipt .brand{font-size:20px;font-weight:700;letter-spacing:2px}
+  .receipt .brand{font-size:1.8em;font-weight:700;letter-spacing:2px}
   .receipt .row{display:flex;justify-content:space-between;gap:6px}
   .receipt .dash{border-top:1px dashed #000;margin:5px 0}
   .receipt .name{font-weight:700;word-break:break-word}
-  .receipt .big{font-size:14px;font-weight:700}
+  .receipt .big{font-size:1.27em;font-weight:700}
 
   @page{size:58mm auto;margin:0}
   @media print{
-    html,body{width:58mm;background:#fff;margin:0}
+    html,body{width:100%;background:#fff;margin:0}
     .app > .panel, .noprint{display:none !important}
     .app{display:block;padding:0;max-width:none}
     .preview{display:block;padding:0;background:none;border-radius:0}
-    .receipt{box-shadow:none;margin:0 auto}
+    /* Fill the whole page width; the printer service scales the page onto the 58mm roll */
+    .receipt{
+      box-shadow:none;margin:0;width:100%;
+      padding:4vw 8vw 8vw;
+      font-size:5.1vw;line-height:1.35;
+    }
+    .receipt .dash{margin:1.5vw 0}
   }
 </style>
 </head>
@@ -268,4 +274,4 @@
 })();
 </script>
 </body>
-                                                                                     </html>
+</html>
